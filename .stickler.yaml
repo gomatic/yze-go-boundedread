@@ -1,0 +1,21 @@
+# Soft-finding baselines: a RATCHET — counts may only fall. Exceeding one
+# fails the build and names the rule; a rule absent here is permitted zero.
+# `soft:` is what makes a rule non-gating — inherited from the global list
+# unchanged here; `soft-baseline:` is only the per-rule ceiling.
+
+soft-baseline:
+  # yze/invariant is a permanent probe (judgment-bound), adjudicated at first
+  # contact on 2026-08-03. Four doc comments trip its keyword set, and not one
+  # of them is a contract of this package that a test could name:
+  #   - Analyzer, "the code cannot see" — the premise the rule rests on, a
+  #     statement about Go rather than about this analyzer.
+  #   - addressed, "never a finding" — names the DIRECTION of an
+  #     approximation (it can only add silence), which is an absence of
+  #     behaviour.
+  #   - networkBody, "exactly one stream" — a fact about net/http's own struct
+  #     definitions, not about this code.
+  #   - streamInterface, "an interface cannot advertise a length" — again the
+  #     language, not this package.
+  # Rewording prose to dodge the keyword list would be gaming the measurement,
+  # so the count is recorded instead; it falls if any of the four is rewritten.
+  yze/invariant: 4
