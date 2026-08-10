@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 )
 
 // Fetch reads a response body whole, which is reported under either selection.
@@ -107,4 +108,34 @@ func Rewrapped(resp *http.Response) ([]byte, error) {
 func ThroughValue(resp *http.Response) ([]byte, error) {
 	drain := io.ReadAll
 	return drain(resp.Body)
+}
+
+// AssertedConcrete pins the concrete-assertion silence: asserting the body to
+// a concrete type PROVES the dynamic type, which is the "code can see what it
+// is" evidence the concrete silence rests on — unlike the interface assertion
+// above, which reveals nothing and is judged through.
+func AssertedConcrete(resp *http.Response) ([]byte, error) {
+	return io.ReadAll(resp.Body.(*os.File))
+}
+
+// MethodExpression spells the buffer drain through the type: the receiver
+// arrives first and the body second, and the source judgment follows it.
+func MethodExpression(resp *http.Response) error {
+	var buf bytes.Buffer
+	_, err := (*bytes.Buffer).ReadFrom(&buf, resp.Body) // want `ReadFrom drains the http.Response body`
+	return err
+}
+
+// pairBufBody spreads a receiver and a source out of one call.
+func pairBufBody(resp *http.Response) (*bytes.Buffer, io.Reader) {
+	return &bytes.Buffer{}, resp.Body
+}
+
+// SpreadMethodExpression spreads the method expression's whole argument list
+// from one multi-valued call: the single argument carries a tuple no source
+// claim can be made about, and the guard stays silent rather than reading an
+// argument that is not there.
+func SpreadMethodExpression(resp *http.Response) error {
+	_, err := (*bytes.Buffer).ReadFrom(pairBufBody(resp))
+	return err
 }

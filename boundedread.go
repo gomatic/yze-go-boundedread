@@ -99,7 +99,7 @@ type pkgPath string
 // typeName is a type's identifier within its package.
 type typeName string
 
-// Analyzer reports unbounded reads of streams whose size the code cannot see.
+// Analyzer reports unbounded reads of streams whose size is beyond the code's sight.
 var Analyzer = newAnalyzer()
 
 // newAnalyzer builds the analyzer and declares -sources, which selects how much

@@ -199,3 +199,32 @@ func TestHTTPBodyCarrierDemandsNetHTTPsOwnBodyField(t *testing.T) {
 	_, ok = httpBodyCarrier(named)
 	assert.False(t, ok, "only Body is a stream")
 }
+
+// TestMethodSourceIndexDefaultsToTheFirstArgument pins the index rule's
+// guards: a callee that is no selector, and a selector the checker recorded no
+// selection for, both keep the source in first position.
+func TestMethodSourceIndexDefaultsToTheFirstArgument(t *testing.T) {
+	t.Parallel()
+
+	info := &types.Info{Selections: map[*ast.SelectorExpr]*types.Selection{}}
+	bare := &ast.CallExpr{Fun: ast.NewIdent("readFrom")}
+	assert.Zero(t, methodSourceIndex(info, bare), "a non-selector callee has no receiver argument")
+
+	sel := &ast.SelectorExpr{X: ast.NewIdent("buf"), Sel: ast.NewIdent("ReadFrom")}
+	selected := &ast.CallExpr{Fun: sel}
+	assert.Zero(t, methodSourceIndex(info, selected), "an unrecorded selection keeps first position")
+}
+
+// TestAssertsInterfaceRefusesWhatTheCheckerNeverSaw pins the guards: an
+// assertion with no asserted type (the switch form never reaches expressions,
+// but the guard holds regardless) and one the type info cannot resolve both
+// reveal nothing.
+func TestAssertsInterfaceRefusesWhatTheCheckerNeverSaw(t *testing.T) {
+	t.Parallel()
+
+	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
+	assert.False(t, assertsInterface(info, &ast.TypeAssertExpr{X: ast.NewIdent("x")}),
+		"no asserted type reveals nothing")
+	assert.False(t, assertsInterface(info, &ast.TypeAssertExpr{X: ast.NewIdent("x"), Type: ast.NewIdent("mystery")}),
+		"an unresolved asserted type reveals nothing")
+}
