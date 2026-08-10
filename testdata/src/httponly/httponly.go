@@ -10,6 +10,7 @@
 package httponly
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"net"
@@ -54,4 +55,56 @@ func Buffer(r io.Reader) (string, error) {
 	var buf bytes.Buffer
 	_, err := io.Copy(&buf, r)
 	return buf.String(), err
+}
+
+// Parenthesized reads the same body through parentheses, which change nothing
+// about which stream is read.
+func Parenthesized(resp *http.Response) ([]byte, error) {
+	return io.ReadAll((resp.Body)) // want `io.ReadAll drains the http.Response body`
+}
+
+// Asserted reads the same body through a type assertion: the asserted value IS
+// the body.
+func Asserted(req *http.Request) ([]byte, error) {
+	return io.ReadAll(req.Body.(io.Reader)) // want `io.ReadAll drains the http.Request body`
+}
+
+// Buffered copies a request body into memory through CopyBuffer: the
+// caller-supplied buffer changes how the bytes travel, not how many the
+// destination keeps.
+func Buffered(req *http.Request) (string, error) {
+	var buf bytes.Buffer
+	_, err := io.CopyBuffer(&buf, req.Body, make([]byte, 4096)) // want `io.CopyBuffer drains the http.Request body`
+	return buf.String(), err
+}
+
+// wrapped embeds the request, promoting its Body: the promoted field is the
+// same stream, judged by the field object rather than the spelled receiver.
+type wrapped struct{ *http.Request }
+
+// Promoted reads the embedded request's body through the promotion.
+func Promoted(w wrapped) ([]byte, error) {
+	return io.ReadAll(w.Body) // want `io.ReadAll drains the http.Request body`
+}
+
+// Explicit reads the same field through the full path, which must be judged
+// identically.
+func Explicit(w wrapped) ([]byte, error) {
+	return io.ReadAll(w.Request.Body) // want `io.ReadAll drains the http.Request body`
+}
+
+// Rewrapped pins a documented boundary: a call-expression argument is presumed
+// to bound, so a transparent wrapper — bufio.NewReader adds no bound — is
+// silent. Telling a bounding wrapper from a transparent one needs knowledge of
+// the callee this rule does not claim; widening this is a deliberate future
+// decision.
+func Rewrapped(resp *http.Response) ([]byte, error) {
+	return io.ReadAll(bufio.NewReader(resp.Body))
+}
+
+// ThroughValue pins the second documented boundary: a sink reached through a
+// function VALUE resolves to a variable, not a function, and is silent.
+func ThroughValue(resp *http.Response) ([]byte, error) {
+	drain := io.ReadAll
+	return drain(resp.Body)
 }

@@ -3,6 +3,7 @@ package boundedread
 import (
 	"errors"
 	"go/ast"
+	"go/token"
 	"go/types"
 	"testing"
 
@@ -150,4 +151,51 @@ func TestDeclareParamsToleratesASignatureWithoutParameters(t *testing.T) {
 	known := scope{params: map[types.Object]bool{}, rebound: map[types.Object]bool{}}
 	known.declareParams(&types.Info{}, &ast.FuncType{})
 	assert.Empty(t, known.params)
+}
+
+// TestAddressedRecognisesAPointerByTypeNotOperator names the claim addressed
+// documents: the address is recognised by the expression's TYPE, since only &x
+// yields a pointer among the operators that can reach it — and the one other
+// pointer-yielding unary, a receive from a channel of pointers, only ever adds
+// silence, never a finding.
+func TestAddressedRecognisesAPointerByTypeNotOperator(t *testing.T) {
+	t.Parallel()
+
+	operand := ast.NewIdent("x")
+	pointer := types.NewPointer(types.Typ[types.Int])
+
+	taken := &ast.UnaryExpr{Op: token.AND, X: operand}
+	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{taken: {Type: pointer}}}
+	assert.Equal(t, []ast.Expr{operand}, addressed(info, taken), "&x surrenders its operand")
+
+	negated := &ast.UnaryExpr{Op: token.NOT, X: operand}
+	info = &types.Info{Types: map[ast.Expr]types.TypeAndValue{negated: {Type: types.Typ[types.Bool]}}}
+	assert.Nil(t, addressed(info, negated), "a non-pointer unary surrenders nothing")
+
+	received := &ast.UnaryExpr{Op: token.ARROW, X: operand}
+	info = &types.Info{Types: map[ast.Expr]types.TypeAndValue{received: {Type: pointer}}}
+	assert.Equal(t, []ast.Expr{operand}, addressed(info, received),
+		"a pointer received from a channel is treated as surrendered, which only ever adds silence")
+}
+
+// TestHTTPBodyCarrierDemandsNetHTTPsOwnBodyField pins the identity rule: a
+// field is a carrier's Body only when it IS the field net/http declares on
+// Request or Response. A synthetic net/http package declaring neither carrier
+// proves both refusals — the lookup that finds no carrier, and the carrier
+// walk that ends with no owner.
+func TestHTTPBodyCarrierDemandsNetHTTPsOwnBodyField(t *testing.T) {
+	t.Parallel()
+
+	bare := types.NewPackage("net/http", "http")
+	orphan := types.NewField(0, bare, "Body", types.Typ[types.String], false)
+	_, ok := httpBodyCarrier(orphan)
+	assert.False(t, ok, "a Body no carrier declares belongs to neither message")
+
+	elsewhere := types.NewField(0, types.NewPackage("example.com/x", "x"), "Body", types.Typ[types.String], false)
+	_, ok = httpBodyCarrier(elsewhere)
+	assert.False(t, ok, "a Body outside net/http is this program's own vocabulary")
+
+	named := types.NewField(0, bare, "Header", types.Typ[types.String], false)
+	_, ok = httpBodyCarrier(named)
+	assert.False(t, ok, "only Body is a stream")
 }
