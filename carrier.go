@@ -34,18 +34,6 @@ const noCarrier carrierID = 0
 // walks index 0 to reach the embedded request and `w.Request` names index 0.
 type fieldIndex int
 
-// reach says how much of a selection belongs to the chain: all of it when the
-// selector names the VALUE a stream hangs off, and everything short of the last
-// field when the selector names the stream itself, whose field is kept beside
-// the chain rather than in it.
-type reach int
-
-// The two reaches a selection is walked to.
-const (
-	toTheValue reach = iota
-	throughHolder
-)
-
 // selection is one link of a chain: either a root, which is the variable a
 // chain starts at, or a step, which is a field's index within the value the
 // chain has reached so far. A root carries its object and no index; a step
@@ -59,27 +47,25 @@ type selection struct {
 // streamOf is the identity of the stream a selector names: the field it selects
 // out, and the chain naming the value that field came from.
 func (s scope) streamOf(info *types.Info, selector *ast.SelectorExpr) rebinding {
-	return rebinding{carrier: s.walked(info, selector, throughHolder), object: info.Uses[selector.Sel]}
+	return rebinding{carrier: s.walked(info, selector), object: info.Uses[selector.Sel]}
 }
 
 // walked is the chain a selector arrives at: the chain of the value it selects
-// from, extended by the field indices the selection walks — all of them, or all
-// but the last, depending on how far the caller means to reach.
+// from, extended by every field index the selection walks through. The field
+// the selector finally names is one of those indices, which costs the chain
+// nothing — a stream is keyed on its chain AND its field object, and appending
+// the same last step to both the cap and the read leaves them equal.
 //
 // A selector the checker recorded no selection for is a qualified identifier
 // naming a package's member, which is selected from no value at all and is a
 // root of its own.
-func (s scope) walked(info *types.Info, selector *ast.SelectorExpr, to reach) carrierID {
+func (s scope) walked(info *types.Info, selector *ast.SelectorExpr) carrierID {
 	found, ok := info.Selections[selector]
 	if !ok {
 		return s.rootOf(info.Uses[selector.Sel])
 	}
-	path := found.Index()
-	if to == throughHolder {
-		path = path[:len(path)-1]
-	}
 	chain := s.carrierOf(info, selector.X)
-	for _, at := range path {
+	for _, at := range found.Index() {
 		chain = s.extend(chain, fieldIndex(at))
 	}
 	return chain
@@ -100,7 +86,7 @@ func (s scope) carrierOf(info *types.Info, from ast.Expr) carrierID {
 	case *ast.Ident:
 		return s.rootOf(info.Uses[node])
 	case *ast.SelectorExpr:
-		return s.walked(info, node, toTheValue)
+		return s.walked(info, node)
 	}
 	return noCarrier
 }

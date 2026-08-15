@@ -74,10 +74,8 @@ func TestAQualifiedIdentifierIsARootOfItsOwn(t *testing.T) {
 	}
 	qualified := &ast.SelectorExpr{X: ast.NewIdent("pkg"), Sel: member}
 
-	want.Equal(known.rootOf(declared), known.walked(info, qualified, toTheValue),
+	want.Equal(known.rootOf(declared), known.walked(info, qualified),
 		"a package member is the value itself, not a field of one")
-	want.Equal(known.rootOf(declared), known.walked(info, qualified, throughHolder),
-		"and it is that whichever reach asks")
 }
 
 // TestAssignedStreamFollowsOnlyWhatItCanName pins which assignment targets the

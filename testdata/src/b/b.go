@@ -83,6 +83,37 @@ func Indirect(w http.ResponseWriter, rp **http.Request) ([]byte, error) {
 	return io.ReadAll((*rp).Body)
 }
 
+// shared is a request the package holds for the life of the process, which is
+// the one carrier two functions can genuinely have in common.
+var shared *http.Request
+
+// Adopt caps the request the package holds and reads it.
+func Adopt(w http.ResponseWriter) ([]byte, error) {
+	shared.Body = http.MaxBytesReader(w, shared.Body, maxBytes)
+	return io.ReadAll(shared.Body)
+}
+
+// Later reads that same request from another function. One variable, one chain
+// — what the two functions do not share is an ordering, and without one the cap
+// in Adopt is no evidence about what this read receives. This is the case the
+// function the assignment was written in is there for: the carrier cannot tell
+// these two apart, because they really are the same value.
+func Later() ([]byte, error) {
+	return io.ReadAll(shared.Body) // want `io.ReadAll drains the http.Request body`
+}
+
+// pair holds two requests at once.
+type pair struct{ first, second *http.Request }
+
+// Paired caps one of a pair's requests and reads the other. Both bodies hang
+// off the same value, so the value alone does not tell them apart — the field
+// walked to reach each one is part of what names it, and a chain that stopped
+// at the value would silence a body nothing capped.
+func Paired(w http.ResponseWriter, held pair) ([]byte, error) {
+	held.first.Body = http.MaxBytesReader(w, held.first.Body, maxBytes)
+	return io.ReadAll(held.second.Body) // want `io.ReadAll drains the http.Request body`
+}
+
 // Edge caps the body where the request arrives and hands the request to a
 // helper. This is the known COST of scoping the exemption to its evidence: the
 // helper is reported even though this path capped the body, because proving
