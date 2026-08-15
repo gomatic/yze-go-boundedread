@@ -4,18 +4,29 @@
 # unchanged here; `soft-baseline:` is only the per-rule ceiling.
 
 soft-baseline:
-  # yze/invariant is a permanent probe (judgment-bound), adjudicated at first
-  # contact on 2026-08-03. Four doc comments trip its keyword set, and not one
-  # of them is a contract of this package that a test could name:
-  #   - Analyzer, "the code cannot see" — the premise the rule rests on, a
-  #     statement about Go rather than about this analyzer.
-  #   - addressed, "never a finding" — names the DIRECTION of an
-  #     approximation (it can only add silence), which is an absence of
-  #     behaviour.
-  #   - networkBody, "exactly one stream" — a fact about net/http's own struct
-  #     definitions, not about this code.
-  #   - streamInterface, "an interface cannot advertise a length" — again the
-  #     language, not this package.
+  # yze/invariant is a permanent probe (judgment-bound). Re-measured 2026-08-15
+  # on this branch with the ${GOBIN} stickler and yze installed 2026-08-10, and
+  # it reports exactly two findings, both of them doc comments that describe the
+  # LANGUAGE rather than a contract of this package that a test could name:
+  #   - unwrapped, source.go:39, "exactly" — "parentheses in every case, and a
+  #     type assertion only when it asserts an INTERFACE". The word is quantifying
+  #     the syntax Go has, not promising a behaviour of this function.
+  #   - streamInterface, source.go:149, "cannot" — "an interface cannot advertise
+  #     a length". A fact about interfaces, and the premise the whole rule rests
+  #     on; there is nothing here for a test to name.
   # Rewording prose to dodge the keyword list would be gaming the measurement,
-  # so the count is recorded instead; it falls if any of the four is rewritten.
-  yze/invariant: 4
+  # so the count is recorded instead; it falls if either is rewritten.
+  #
+  # This replaces a 2026-08-03 adjudication of FOUR sites — Analyzer,
+  # addressed, networkBody, streamInterface — of which three no longer fire
+  # after this package's prose changed, while `unwrapped`, the one that does,
+  # was never named. A ceiling of 4 against an actual 2 is two unspent units of
+  # permission to regress, which is the exact defect this session exists to
+  # remove, so the number comes down with the comment.
+  #
+  # Deliberately taken with eyes open: another agent is changing yze/invariant
+  # itself on this same branch, so its count here may rise when that lands. That
+  # is the ratchet working — a rise is meant to fail the build and be answered by
+  # a deliberate, reviewable raise, not absorbed in silence by slack left behind
+  # for the purpose.
+  yze/invariant: 2
