@@ -171,6 +171,11 @@ func run(pass *analysis.Pass) (any, error) {
 
 // inTestFile reports a position inside a _test.go file. Test code reads the
 // fixtures it wrote itself, so it is out of scope.
+//
+// The name comes from the FileSet's own entry, never from a Position: Position
+// applies //line directives, so a file could rename itself out of this rule
+// with one comment line while the go tool went on compiling it as ordinary
+// source. A decision ABOUT a file must read something that file cannot rewrite.
 func inTestFile(pass *analysis.Pass, pos token.Pos) bool {
-	return strings.HasSuffix(pass.Fset.Position(pos).Filename, "_test.go")
+	return strings.HasSuffix(pass.Fset.File(pos).Name(), "_test.go")
 }

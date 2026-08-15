@@ -104,3 +104,21 @@ func TestRegistrationIsWellFormed(t *testing.T) {
 	assert.Equal(t, "yze/boundedread", boundedread.Registration.RuleID())
 	assert.Same(t, boundedread.Analyzer, boundedread.Registration.Analyzer)
 }
+
+// TestADirectiveDoesNotRenameAFile pins the test-file exemption to the name the
+// FileSet holds, which the judged file cannot rewrite. A `//line` directive is a
+// compiler feature for generated code: it changes what fset.Position reports and
+// nothing else — the go tool still compiles the file, go list still names it in
+// GoFiles, and an importer still links it. So an exemption resolved through
+// Position is one comment line away from being switched off by the very file it
+// is judging, and this analyzer's rule is a denial-of-service bound.
+//
+// Package forgeline holds the same unbounded read three times. Control carries
+// no directive; Forged is ordinary compiled source claiming a _test.go name and
+// is reported anyway; spared is a real test file claiming a source name and is
+// spared anyway. Both directions are needed: reading the wrong name forges a
+// silence in one and a false positive in the other.
+func TestADirectiveDoesNotRenameAFile(t *testing.T) {
+	selecting(t, "http")
+	analysistest.Run(t, analysistest.TestData(), boundedread.Analyzer, "forgeline")
+}

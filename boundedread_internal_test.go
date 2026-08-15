@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/tools/go/analysis"
 )
 
 // method builds an interface method with the given name and arity.
@@ -231,4 +232,31 @@ func TestAssertsInterfaceRefusesWhatTheCheckerNeverSaw(t *testing.T) {
 		"no asserted type reveals nothing")
 	assert.False(t, assertsInterface(info, &ast.TypeAssertExpr{X: ast.NewIdent("x"), Type: ast.NewIdent("mystery")}),
 		"an unresolved asserted type reveals nothing")
+}
+
+// TestInTestFileReadsTheNameTheFileCannotRewrite pins the exemption to the
+// FileSet's own entry for a file. A //line directive compiles to exactly the
+// AddLineColumnInfo calls made here: fset.Position reads that alternative
+// information and token.File.Name() ignores it, so the disagreement below is
+// the one a directive produces, built directly rather than parsed.
+//
+// Both directions are asserted because reading the rewritten name is wrong in
+// both: it forges silence on compiled source and a finding on a real test file.
+func TestInTestFileReadsTheNameTheFileCannotRewrite(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	shipped := fset.AddFile("shipped.go", -1, 100)
+	shipped.AddLineColumnInfo(0, "zz_test.go", 1, 1)
+	tested := fset.AddFile("shipped_test.go", -1, 100)
+	tested.AddLineColumnInfo(0, "nottest.go", 1, 1)
+	pass := &analysis.Pass{Fset: fset}
+
+	assert.Equal(t, "zz_test.go", fset.Position(shipped.Pos(1)).Filename,
+		"the position machinery does adopt the claimed name — without this the rest asserts nothing")
+	assert.Equal(t, "nottest.go", fset.Position(tested.Pos(1)).Filename,
+		"and in the other direction too")
+
+	assert.False(t, inTestFile(pass, shipped.Pos(1)), "compiled source claiming a test name is still judged")
+	assert.True(t, inTestFile(pass, tested.Pos(1)), "a test file claiming a source name is still exempt")
 }
