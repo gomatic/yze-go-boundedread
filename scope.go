@@ -27,28 +27,6 @@ import (
 // package block, where no statement is ordered against another.
 type funcScope token.Pos
 
-// carrierID identifies the value a field was selected from, as the CHAIN of
-// selections that names it rather than as its last link. The last link is not
-// enough for the same reason the field is not: `a.Request.Body` and
-// `b.Request.Body` end in one Request field object, which every such struct in
-// the program shares, so a cap on one would speak for the other. Chains are
-// interned as they are met, so one comparable integer stands for a whole path
-// and the map key stays a fixed-size struct.
-type carrierID int
-
-// noCarrier is what an expression naming no chain yields: a plain variable,
-// which needs none, and a value built on the spot or returned by a call, which
-// has none to give. An unknown root poisons every link above it, so a chain is
-// either named all the way down or not named at all.
-const noCarrier carrierID = 0
-
-// selection is one link of a chain: the value selected from, and the field
-// selected out of it.
-type selection struct {
-	field types.Object
-	from  carrierID
-}
-
 // rebinding is one stream an assignment may have replaced: the object the
 // target names, the VALUE that object was selected from, and the function the
 // assignment was written in.
@@ -186,59 +164,12 @@ func (s scope) assignedStream(info *types.Info, target ast.Expr) (rebinding, boo
 			return rebinding{object: named}, true
 		}
 	case *ast.SelectorExpr:
-		field, carrier := info.Uses[node.Sel], s.carrierOf(info, node.X)
-		if field != nil && carrier != noCarrier {
-			return rebinding{carrier: carrier, object: field}, true
+		named := s.streamOf(info, node)
+		if named.object != nil && named.carrier != noCarrier {
+			return named, true
 		}
 	}
 	return rebinding{}, false
-}
-
-// carrierOf is the chain naming the value a field was selected from.
-// Parentheses and a dereference change nothing about which value is meant —
-// `(*rp).Body` and `rp.Body` are one stream — and a field of a field extends
-// the chain rather than replacing it. Everything else names no value this rule
-// can recognise on the reading side either, so it yields nothing rather than a
-// wrong one.
-func (s scope) carrierOf(info *types.Info, from ast.Expr) carrierID {
-	switch node := from.(type) {
-	case *ast.ParenExpr:
-		return s.carrierOf(info, node.X)
-	case *ast.StarExpr:
-		return s.carrierOf(info, node.X)
-	case *ast.Ident:
-		return s.link(noCarrier, info.Uses[node])
-	case *ast.SelectorExpr:
-		return s.extend(s.carrierOf(info, node.X), info.Uses[node.Sel])
-	}
-	return noCarrier
-}
-
-// extend is the chain one selection longer, and nothing when the value being
-// selected from is itself unnamed: a link hanging off an unknown root names no
-// more than the root did, and pretending otherwise would let `f().Request.Body`
-// and `g().Request.Body` share one identity.
-func (s scope) extend(from carrierID, field types.Object) carrierID {
-	if from == noCarrier {
-		return noCarrier
-	}
-	return s.link(from, field)
-}
-
-// link is the identity of one chain, minted the first time that chain is met so
-// the same path yields the same id on every later meeting. A field the checker did not resolve
-// names nothing.
-func (s scope) link(from carrierID, field types.Object) carrierID {
-	if field == nil {
-		return noCarrier
-	}
-	step := selection{from: from, field: field}
-	if known, ok := s.carriers[step]; ok {
-		return known
-	}
-	minted := carrierID(len(s.carriers) + 1)
-	s.carriers[step] = minted
-	return minted
 }
 
 // reading is the scope as one function sees it: the same pass-wide facts, plus

@@ -102,8 +102,9 @@ func (r reading) callerStream(info *types.Info, name *ast.Ident) (sourceName, bo
 // was written in: a cap on one request is not a cap on the next one, and a cap
 // in one function is not a cap on a body another function received.
 func (r reading) networkBody(info *types.Info, selector *ast.SelectorExpr) (sourceName, bool) {
-	field, ok := info.Uses[selector.Sel].(*types.Var)
-	if !ok || r.replaced(rebinding{carrier: r.carrierOf(info, selector.X), object: field}) {
+	stream := r.streamOf(info, selector)
+	field, ok := stream.object.(*types.Var)
+	if !ok || r.replaced(stream) {
 		return "", false
 	}
 	carrier, ok := httpBodyCarrier(field)

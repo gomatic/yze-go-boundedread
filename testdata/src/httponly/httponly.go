@@ -109,6 +109,25 @@ func Explicit(w wrapped) ([]byte, error) {
 	return io.ReadAll(w.Request.Body) // want `io.ReadAll drains the http.Request body`
 }
 
+// PromotedCap caps the embedded request's body through the promotion and reads
+// it through the full path. The source judgment calls those two spellings one
+// stream, and the exemption agrees: both chains hang off w, because the
+// embedded field a promotion walks through is folded into them.
+func PromotedCap(rw http.ResponseWriter, w wrapped) ([]byte, error) {
+	w.Body = http.MaxBytesReader(rw, w.Body, 1<<20)
+	return io.ReadAll(w.Request.Body)
+}
+
+// Anonymous reads the embedded request's body off a value a call handed back.
+// The promotion walks a field, but there is no chain to hang it on, so the
+// stream stays unnamed — an assignment to it would buy no silence either.
+func Anonymous() ([]byte, error) {
+	return io.ReadAll(wrapper().Body) // want `io.ReadAll drains the http.Request body`
+}
+
+// wrapper hands back a wrapped request the caller never named.
+func wrapper() wrapped { return wrapped{} }
+
 // Neighbour caps one wrapped request and reads another. Both paths end in the
 // same two field objects — the Request every such struct embeds and the Body
 // every request carries — so a cap keyed on the last link alone would speak for

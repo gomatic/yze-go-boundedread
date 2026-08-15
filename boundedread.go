@@ -70,10 +70,14 @@
 //     the capped request is the one that reached the reader is interprocedural.
 //     A helper can be handed the bounded body instead of the request; the
 //     middleware form cannot, since http.Handler's signature admits nothing but
-//     the request, and for it the only answer is a bound at the read. That cost
-//     is the price of an exemption no inert line can forge, and the alternative
-//     is worse in kind: an exemption wide enough to cover the middleware is
-//     wide enough to silence every unbounded handler standing next to it.
+//     the request, and for it the only answer is a bound at the read. The
+//     alternative is not a wider scope but a different kind of analysis: the
+//     middleware hands its request to next.ServeHTTP, and following it there is
+//     interprocedural dataflow this rule does not do. Widening the scope
+//     instead — to the enclosing function, or to the package — buys the
+//     middleware nothing it could not get from dataflow and costs every
+//     unbounded handler standing beside a capped one, which is what Routes in
+//     the b fixture shows.
 //
 //   - TEST files are out of scope: a test reads the fixture it wrote itself.
 //

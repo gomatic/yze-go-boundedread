@@ -103,9 +103,11 @@ func helper(req *http.Request) ([]byte, error) {
 // behind it. This is the same cost in the shape that has NO remedy but a second
 // bound at the read: http.Handler admits nothing but the request, so the
 // middleware cannot hand the handler a bounded body. It is pinned rather than
-// hidden — and it is not evidence that the exemption should be widened, because
-// an exemption wide enough to reach Handle from here is wide enough to silence
-// every unbounded handler registered beside it, which is what Routes shows.
+// hidden. What would answer it is following the request into next.ServeHTTP,
+// which is interprocedural dataflow this rule does not do — not a wider scope:
+// widening to the enclosing function or the package reaches Handle only by also
+// silencing every unbounded handler registered beside a capped one, which is
+// what Routes shows.
 func Capping(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
