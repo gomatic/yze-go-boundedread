@@ -138,27 +138,55 @@ func TestAssignedStreamNamesTheValueNotOnlyTheField(t *testing.T) {
 	t.Parallel()
 	want := assert.New(t)
 
-	req, body := ast.NewIdent("req"), ast.NewIdent("Body")
-	carrier := types.NewVar(0, nil, "req", types.Typ[types.String])
+	first, second := ast.NewIdent("a"), ast.NewIdent("b")
+	inner, body := ast.NewIdent("Request"), ast.NewIdent("Body")
+	a := types.NewVar(0, nil, "a", types.Typ[types.String])
+	b := types.NewVar(0, nil, "b", types.Typ[types.String])
+	request := types.NewField(0, nil, "Request", types.Typ[types.String], false)
 	field := types.NewField(0, nil, "Body", types.Typ[types.String], false)
-	info := &types.Info{Uses: map[*ast.Ident]types.Object{req: carrier, body: field}}
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{
+		first: a, second: b, inner: request, body: field,
+	}}
+	known := scope{rebound: map[rebinding]bool{}, carriers: map[selection]carrierID{}}
 
-	named, ok := assignedStream(info, req)
+	named, ok := known.assignedStream(info, first)
 	want.True(ok)
-	want.Equal(rebinding{object: carrier}, named, "a variable names itself")
+	want.Equal(rebinding{object: a}, named, "a variable names itself and needs no chain")
 
-	selected, ok := assignedStream(info, &ast.SelectorExpr{X: req, Sel: body})
+	selected, ok := known.assignedStream(info, &ast.SelectorExpr{X: first, Sel: body})
 	want.True(ok)
-	want.Equal(rebinding{carrier: carrier, object: field}, selected, "a field names the value it came from")
+	want.Equal(field, selected.object, "a field target names the field")
+	want.NotEqual(noCarrier, selected.carrier, "and the value it was selected from")
 
-	_, ok = assignedStream(info, &ast.IndexExpr{X: req})
+	again, _ := known.assignedStream(info, &ast.SelectorExpr{X: first, Sel: body})
+	want.Equal(selected, again, "the same path names the same stream every time it is met")
+
+	elsewhere, _ := known.assignedStream(info, &ast.SelectorExpr{X: second, Sel: body})
+	want.NotEqual(selected.carrier, elsewhere.carrier, "another value is another stream")
+
+	nested, _ := known.assignedStream(info,
+		&ast.SelectorExpr{X: &ast.SelectorExpr{X: first, Sel: inner}, Sel: body})
+	want.NotEqual(selected.carrier, nested.carrier, "a.Body and a.Request.Body are different chains")
+
+	sibling, _ := known.assignedStream(info,
+		&ast.SelectorExpr{X: &ast.SelectorExpr{X: second, Sel: inner}, Sel: body})
+	want.NotEqual(nested.carrier, sibling.carrier,
+		"a.Request.Body and b.Request.Body share a Request field and nothing else")
+
+	_, ok = known.assignedStream(info, &ast.IndexExpr{X: first})
 	want.False(ok, "an index names no stream")
 
-	_, ok = assignedStream(info, &ast.SelectorExpr{X: &ast.CompositeLit{}, Sel: body})
+	_, ok = known.assignedStream(info, &ast.SelectorExpr{X: &ast.CompositeLit{}, Sel: body})
 	want.False(ok, "a field of a value built on the spot names no stream")
 
-	_, ok = assignedStream(info, ast.NewIdent("unresolved"))
+	_, ok = known.assignedStream(info,
+		&ast.SelectorExpr{X: &ast.SelectorExpr{X: &ast.CompositeLit{}, Sel: inner}, Sel: body})
+	want.False(ok, "nor does a chain hanging off one — an unknown root names nothing above it")
+
+	_, ok = known.assignedStream(info, ast.NewIdent("unresolved"))
 	want.False(ok, "an identifier the checker resolved to nothing names no stream")
+
+	want.Equal(noCarrier, known.link(noCarrier, nil), "an unresolved field extends no chain")
 }
 
 // TestDeclaredInIsTheOutermostFunction pins the scope a rebinding is recorded

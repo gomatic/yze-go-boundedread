@@ -103,7 +103,7 @@ func (r reading) callerStream(info *types.Info, name *ast.Ident) (sourceName, bo
 // in one function is not a cap on a body another function received.
 func (r reading) networkBody(info *types.Info, selector *ast.SelectorExpr) (sourceName, bool) {
 	field, ok := info.Uses[selector.Sel].(*types.Var)
-	if !ok || r.replaced(rebinding{carrier: carrierOf(info, selector.X), object: field}) {
+	if !ok || r.replaced(rebinding{carrier: r.carrierOf(info, selector.X), object: field}) {
 		return "", false
 	}
 	carrier, ok := httpBodyCarrier(field)

@@ -109,6 +109,15 @@ func Explicit(w wrapped) ([]byte, error) {
 	return io.ReadAll(w.Request.Body) // want `io.ReadAll drains the http.Request body`
 }
 
+// Neighbour caps one wrapped request and reads another. Both paths end in the
+// same two field objects — the Request every such struct embeds and the Body
+// every request carries — so a cap keyed on the last link alone would speak for
+// a message it never touched. The chain is what tells the two apart.
+func Neighbour(rw http.ResponseWriter, first, second wrapped) ([]byte, error) {
+	first.Request.Body = http.MaxBytesReader(rw, first.Request.Body, 1<<20)
+	return io.ReadAll(second.Request.Body) // want `io.ReadAll drains the http.Request body`
+}
+
 // Rewrapped pins a documented boundary: a call-expression argument is presumed
 // to bound, so a transparent wrapper — bufio.NewReader adds no bound — is
 // silent. Telling a bounding wrapper from a transparent one needs knowledge of
