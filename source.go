@@ -20,12 +20,12 @@ import (
 // does not claim. That silence is a documented boundary, pinned by the
 // wrapped fixture; so is a sink reached through a function VALUE
 // (`f := io.ReadAll; f(body)`), which resolves to a variable, not a function.
-func (s scope) uncontrolled(info *types.Info, source ast.Expr) (sourceName, bool) {
+func (r reading) uncontrolled(info *types.Info, source ast.Expr) (sourceName, bool) {
 	switch node := unwrapped(info, source).(type) {
 	case *ast.Ident:
-		return s.callerStream(info, node)
+		return r.callerStream(info, node)
 	case *ast.SelectorExpr:
-		return s.networkBody(info, node)
+		return r.networkBody(info, node)
 	}
 	return "", false
 }
@@ -72,12 +72,12 @@ func assertsInterface(info *types.Info, assert *ast.TypeAssertExpr) bool {
 // This is the opt-in half of the rule. Such a read is unbounded by the letter,
 // but the size may be the CALLER's to cap — so unless -sources=all selects the
 // class, nothing here is claimed.
-func (s scope) callerStream(info *types.Info, name *ast.Ident) (sourceName, bool) {
-	if !s.sources.reportsCallerStreams() {
+func (r reading) callerStream(info *types.Info, name *ast.Ident) (sourceName, bool) {
+	if !r.sources.reportsCallerStreams() {
 		return "", false
 	}
 	arrived := info.Uses[name]
-	if !s.params[arrived] || s.rebound[arrived] {
+	if !r.params[arrived] || r.replaced(arrived) {
 		return "", false
 	}
 	stream, ok := streamInterface(arrived.Type())
@@ -93,11 +93,16 @@ func (s scope) callerStream(info *types.Info, name *ast.Ident) (sourceName, bool
 // The judgment rests on the FIELD OBJECT the selector resolves to, not on the
 // spelled receiver's type: a struct embedding *http.Request promotes the very
 // same Body field, so `w.Body` and `w.Request.Body` are one stream and are
-// judged alike. The rebound map keys on that same object, which is what keeps
-// the two halves of the rule consistent.
-func (s scope) networkBody(info *types.Info, selector *ast.SelectorExpr) (sourceName, bool) {
+// judged alike.
+//
+// That object is one thing for the whole program, though — every request in
+// every package selects the same Body — so it identifies the KIND of stream
+// rather than the value. A rebinding is evidence about a value, so it is looked up
+// under the function it was written in as well: a cap in one function is not a
+// cap on a body another function received.
+func (r reading) networkBody(info *types.Info, selector *ast.SelectorExpr) (sourceName, bool) {
 	field, ok := info.Uses[selector.Sel].(*types.Var)
-	if !ok || s.rebound[field] {
+	if !ok || r.replaced(field) {
 		return "", false
 	}
 	carrier, ok := httpBodyCarrier(field)

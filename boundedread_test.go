@@ -63,12 +63,18 @@ func TestTheCallerStreamClassIsReachable(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), boundedread.Analyzer, "a")
 }
 
-// TestACappedBodyIsNotReported pins the guard that keeps the rule honest:
-// package b replaces the request body with an http.MaxBytesReader, so the body
-// it reads is not the one that arrived and no finding is owed — for that
-// function or for the sibling that reads the same field, since the rule claims
-// nothing about a value it has watched being replaced.
-func TestACappedBodyIsNotReported(t *testing.T) {
+// TestACapSilencesOnlyTheFunctionItGoverns pins the exemption at the scope of
+// its reason. Package b's Guarded replaces the request body with an
+// http.MaxBytesReader before reading it, so what it reads is not what arrived
+// and no finding is owed — there, and in the closures written inside the
+// function that capped it. Sibling reads a body no cap in its own function ever
+// replaced and IS reported, even though every one of these functions selects
+// the one Body field object net/http declares; and touch's inert self-assignment
+// buys nothing, since forging the marker acquires none of the property the
+// exemption exists for. Edge and helper pin the cost of that scope rather than
+// hide it: a cap applied where the request arrives does not reach the helper
+// that reads it, and the helper is reported.
+func TestACapSilencesOnlyTheFunctionItGoverns(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), boundedread.Analyzer, "b")
 }
 

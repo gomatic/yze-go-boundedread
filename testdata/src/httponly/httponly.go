@@ -18,6 +18,14 @@ import (
 	"os"
 )
 
+// fetched is a drain written in no function at all. A package-level initialiser
+// belongs to the package block, which holds no cap of its own, so the body it
+// reads is the one that arrived and the finding stands.
+var fetched, _ = io.ReadAll(latest().Body) // want `io.ReadAll drains the http.Response body`
+
+// latest yields the response the package reads at initialisation.
+func latest() *http.Response { return &http.Response{} }
+
 // Fetch reads a response body whole, which is reported under either selection.
 func Fetch(resp *http.Response) ([]byte, error) {
 	return io.ReadAll(resp.Body) // want `io.ReadAll drains the http.Response body`

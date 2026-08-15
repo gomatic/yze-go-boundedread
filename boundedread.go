@@ -46,10 +46,21 @@
 //     operator chose is not a denial of service. The known cost of that line
 //     is a concrete socket — *net.TCPConn and its siblings are unbounded and
 //     go unreported, because a socket is nearly always held as net.Conn.
-//   - A REBOUND source is silent: if any assignment in the package replaces
-//     the parameter or the Body field (`r = io.LimitReader(r, max)`,
-//     `req.Body = http.MaxBytesReader(w, req.Body, max)`), the value read is
-//     no longer the one that arrived, so nothing is claimed about it.
+//   - A REBOUND source is silent WHERE THE REBINDING GOVERNS IT: if an
+//     assignment in the same function replaces the parameter or the Body field
+//     (`r = io.LimitReader(r, max)`, `req.Body = http.MaxBytesReader(w,
+//     req.Body, max)`), the value that function reads is no longer the one
+//     that arrived, so nothing is claimed about it. The exemption stops at the
+//     function, because that is as far as the evidence reaches: net/http
+//     declares ONE Body field object for the whole program, so a cap applied
+//     in one function shares an object — not a body — with a read in another,
+//     and the cap never ran before that read. Scoped any wider, a single inert
+//     `req.Body = req.Body` anywhere would disable the rule for the package.
+//     The KNOWN COST of that line is the cap applied at the edge: a ServeHTTP
+//     that caps and a helper further down that reads is reported, because
+//     proving the capped request is the one the helper received is
+//     interprocedural dataflow this rule does not do. Bounding at the read, or
+//     passing the bounded body rather than the request, answers it.
 //   - TEST files are out of scope: a test reads the fixture it wrote itself.
 //
 // # bufio.Scanner is deliberately absent
@@ -66,7 +77,6 @@ package boundedread
 import (
 	"go/ast"
 	"go/token"
-	"go/types"
 	"strings"
 
 	goyze "github.com/gomatic/go-yze"
@@ -125,15 +135,18 @@ var Registration = goyze.Registration{
 	Analyzer:   Analyzer,
 }
 
-// run reports every drain of an uncontrolled stream outside test files.
+// run reports every drain of an uncontrolled stream outside test files, judged
+// from inside the function the drain was written in — which is as far as a
+// rebinding's evidence reaches.
 func run(pass *analysis.Pass) (any, error) {
 	ins, _ := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	known := scopeOf(pass.TypesInfo, ins)
-	ins.Preorder([]ast.Node{(*ast.CallExpr)(nil)}, func(n ast.Node) {
+	ins.WithStack([]ast.Node{(*ast.CallExpr)(nil)}, func(n ast.Node, isEntering bool, stack []ast.Node) bool {
 		call, _ := n.(*ast.CallExpr)
-		if !inTestFile(pass, call.Pos()) {
-			known.checkCall(pass, call)
+		if isEntering && !inTestFile(pass, call.Pos()) {
+			known.in(declaredIn(stack)).checkCall(pass, call)
 		}
+		return true
 	})
 	return nil, nil
 }
@@ -142,106 +155,4 @@ func run(pass *analysis.Pass) (any, error) {
 // fixtures it wrote itself, so it is out of scope.
 func inTestFile(pass *analysis.Pass, pos token.Pos) bool {
 	return strings.HasSuffix(pass.Fset.Position(pos).Filename, "_test.go")
-}
-
-// scope carries the pass-wide facts a decision rests on: which objects a value
-// can arrive on from outside (parameters), which objects some assignment may
-// have replaced (so nothing can be claimed about them), and which source
-// classes the run is claiming at all.
-type scope struct {
-	params  map[types.Object]bool
-	rebound map[types.Object]bool
-	sources sourceClass
-}
-
-// scopeOf collects the parameters and the assignment targets of the pass, under
-// the selected source classes.
-func scopeOf(info *types.Info, ins *inspector.Inspector) scope {
-	known := scope{params: map[types.Object]bool{}, rebound: map[types.Object]bool{}, sources: selected}
-	nodes := []ast.Node{(*ast.FuncType)(nil), (*ast.AssignStmt)(nil), (*ast.UnaryExpr)(nil)}
-	ins.Preorder(nodes, func(n ast.Node) { known.observe(info, n) })
-	return known
-}
-
-// observe folds one node into the scope: a signature contributes parameters,
-// an assignment rebinds its targets, and taking an address surrenders the
-// operand — a pointer elsewhere may replace what it holds.
-func (s scope) observe(info *types.Info, n ast.Node) {
-	switch node := n.(type) {
-	case *ast.FuncType:
-		s.declareParams(info, node)
-	case *ast.AssignStmt:
-		s.rebind(info, node.Lhs)
-	case *ast.UnaryExpr:
-		s.rebind(info, addressed(info, node))
-	}
-}
-
-// addressed is the operand whose address a unary expression takes, and nothing
-// for every other unary operator: negating or complementing a value hands no
-// one the power to replace it.
-//
-// The address is recognised by the expression's TYPE rather than its operator,
-// since only &x yields a pointer. A receive from a channel of pointers is the
-// one other unary expression that does, and reading it surrenders nothing —
-// but treating it as surrendered only ever adds silence, never a finding.
-func addressed(info *types.Info, unary *ast.UnaryExpr) []ast.Expr {
-	if _, ok := info.TypeOf(unary).(*types.Pointer); !ok {
-		return nil
-	}
-	return []ast.Expr{unary.X}
-}
-
-// declareParams records the objects a signature's parameters bind.
-func (s scope) declareParams(info *types.Info, signature *ast.FuncType) {
-	if signature.Params == nil {
-		return
-	}
-	for _, field := range signature.Params.List {
-		s.declareNames(info, field.Names)
-	}
-}
-
-// declareNames records the objects the given declarations bind.
-func (s scope) declareNames(info *types.Info, names []*ast.Ident) {
-	for _, name := range names {
-		if declared, ok := info.Defs[name].(*types.Var); ok {
-			s.params[declared] = true
-		}
-	}
-}
-
-// rebind records the objects these expressions may replace. A short variable
-// declaration is included on purpose: `r, err := next()` in a function body
-// assigns the parameter r, since parameters live in the body's own scope.
-func (s scope) rebind(info *types.Info, targets []ast.Expr) {
-	for _, target := range targets {
-		if replaced := info.Uses[assignedIdent(target)]; replaced != nil {
-			s.rebound[replaced] = true
-		}
-	}
-}
-
-// assignedIdent is the identifier an assignment target names — the variable
-// itself, or the field of a selector — and nil for anything else, which names
-// no object this rule tracks.
-func assignedIdent(target ast.Expr) *ast.Ident {
-	switch node := target.(type) {
-	case *ast.Ident:
-		return node
-	case *ast.SelectorExpr:
-		return node.Sel
-	}
-	return nil
-}
-
-// checkCall reports a drain whose source is a stream of uncontrolled size.
-func (s scope) checkCall(pass *analysis.Pass, call *ast.CallExpr) {
-	drain, ok := drainOf(pass.TypesInfo, call)
-	if !ok {
-		return
-	}
-	if source, ok := s.uncontrolled(pass.TypesInfo, drain.source); ok {
-		pass.Reportf(call.Pos(), message, drain.sink, source, drain.bounded)
-	}
 }

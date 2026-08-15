@@ -148,7 +148,7 @@ func TestAssignedIdentNamesOnlyWhatItCanTrack(t *testing.T) {
 func TestDeclareParamsToleratesASignatureWithoutParameters(t *testing.T) {
 	t.Parallel()
 
-	known := scope{params: map[types.Object]bool{}, rebound: map[types.Object]bool{}}
+	known := scope{params: map[types.Object]bool{}, rebound: map[rebinding]bool{}}
 	known.declareParams(&types.Info{}, &ast.FuncType{})
 	assert.Empty(t, known.params)
 }
