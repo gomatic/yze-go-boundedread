@@ -118,6 +118,15 @@ func TestRegistrationIsWellFormed(t *testing.T) {
 // is reported anyway; spared is a real test file claiming a source name and is
 // spared anyway. Both directions are needed: reading the wrong name forges a
 // silence in one and a false positive in the other.
+//
+// The rest of the package sits on the matcher's literal, because the identity
+// is only as good as the comparison that reads it and every widening below
+// survived this suite before its fixture existed. Kit's name contains "_test"
+// and does not end in "_test.go"; Helper's ends in "test.go" with no underscore
+// — the left edge, and the shape of net/http/httptest/httptest.go; Golden's
+// contains "_test.go" without ending in it; Cased's differs from "_test.go"
+// only in letter case. All four are in GoFiles, so all four are reported, and
+// each kills one widening of the one expression that decides the exemption.
 func TestADirectiveDoesNotRenameAFile(t *testing.T) {
 	selecting(t, "http")
 	analysistest.Run(t, analysistest.TestData(), boundedread.Analyzer, "forgeline")
