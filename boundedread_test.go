@@ -63,18 +63,26 @@ func TestTheCallerStreamClassIsReachable(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), boundedread.Analyzer, "a")
 }
 
-// TestACapSilencesOnlyTheFunctionItGoverns pins the exemption at the scope of
-// its reason. Package b's Guarded replaces the request body with an
-// http.MaxBytesReader before reading it, so what it reads is not what arrived
-// and no finding is owed — there, and in the closures written inside the
-// function that capped it. Sibling reads a body no cap in its own function ever
-// replaced and IS reported, even though every one of these functions selects
-// the one Body field object net/http declares; and touch's inert self-assignment
-// buys nothing, since forging the marker acquires none of the property the
-// exemption exists for. Edge and helper pin the cost of that scope rather than
-// hide it: a cap applied where the request arrives does not reach the helper
-// that reads it, and the helper is reported.
-func TestACapSilencesOnlyTheFunctionItGoverns(t *testing.T) {
+// TestACapSilencesOnlyTheStreamItReplaces pins the exemption at the scope of
+// its reason: the value that was replaced, in the function that replaced it.
+//
+// Package b's Guarded caps the request body before reading it, so what it reads
+// is not what arrived and no finding is owed — there, and through a closure
+// that caps or reads the same request (Applied, Captured), and through a
+// pointer to it (Indirect). Everything that does not replace THAT value is
+// reported: Sibling's request, which no cap in its own function touched; Other's
+// second request, capped nowhere though its neighbour was; and the `/upload`
+// handler in Routes, which shares an enclosing function with a capping handler
+// and nothing else — the shape that route registration takes, and the one a
+// function-only scope silenced. touch is the forgery that used to disable the
+// package: an inert self-assignment on a request no other function holds, which
+// now buys silence for nothing but itself.
+//
+// Edge/helper and Capping/Handle pin the COST of that scope rather than hide
+// it: a bound applied in one function does not reach the read in another, so
+// both readers are reported although both paths bound the body. That is not an
+// argument for widening the exemption — Routes is what widening costs.
+func TestACapSilencesOnlyTheStreamItReplaces(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), boundedread.Analyzer, "b")
 }
 

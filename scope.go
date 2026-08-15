@@ -1,7 +1,8 @@
 // The scope: what a pass knows before it judges a call, and how far each fact
 // reaches. A parameter is an object a value arrives on from outside; a
 // rebinding is an assignment that may have replaced one, and it is evidence
-// only inside the function it was written in.
+// about the value it replaced, inside the function it was written in — and
+// about nothing else.
 
 package boundedread
 
@@ -19,18 +20,29 @@ import (
 // function, so a closure counts as part of the function that spells it: a
 // literal is free to run before or after the read it sits beside — `apply :=
 // func(){ req.Body = cap(req.Body) }; apply(); io.ReadAll(req.Body)` is
-// ordinary capping code — and splitting the two apart would report it. The zero
-// value is the package block, where no statement is ordered against another.
+// ordinary capping code — and splitting the two apart would report it. This is
+// safe only because the carrier is keyed alongside it: two handler closures in
+// one function share this scope, and it is the carrier, not the scope, that
+// keeps a cap on one request out of a read of the next. The zero value is the
+// package block, where no statement is ordered against another.
 type funcScope token.Pos
 
-// rebinding is one object an assignment may have replaced, together with the
-// function that assignment was written in. The pair is the key because the
-// object alone is not one value: net/http declares a single Body field object
-// that every request in the program selects, so an assignment keyed on the
-// object alone would speak for bodies no assignment in that function reached.
+// rebinding is one stream an assignment may have replaced: the object the
+// target names, the VALUE that object was selected from, and the function the
+// assignment was written in.
+//
+// All three are needed, because neither the object nor the function alone
+// identifies a stream. net/http declares a single Body field object that every
+// request in the program selects, so an assignment keyed on the object alone
+// speaks for every body in the package; and a closure written beside another
+// closure shares its enclosing function, so `func(w, r){ r.Body = cap(r.Body) }`
+// registered next to `func(w, r){ read(r.Body) }` would speak for a request it did
+// not touch — which is what route registration looks like. The carrier is what
+// distinguishes one request from the next.
 type rebinding struct {
-	object types.Object
-	within funcScope
+	carrier types.Object
+	object  types.Object
+	within  funcScope
 }
 
 // scope carries the pass-wide facts a decision rests on: which objects a value
@@ -119,27 +131,55 @@ func (s scope) declareNames(info *types.Info, names []*ast.Ident) {
 	}
 }
 
-// rebind records the objects these expressions may replace, within the function
+// rebind records the streams these expressions may replace, within the function
 // the assignment was written in. A short variable declaration is included on
 // purpose: `r, err := next()` in a function body assigns the parameter r, since
 // parameters live in the body's own scope.
 func (s scope) rebind(info *types.Info, targets []ast.Expr, within funcScope) {
 	for _, target := range targets {
-		if replaced := info.Uses[assignedIdent(target)]; replaced != nil {
-			s.rebound[rebinding{within: within, object: replaced}] = true
+		if replaced, ok := assignedStream(info, target); ok {
+			replaced.within = within
+			s.rebound[replaced] = true
 		}
 	}
 }
 
-// assignedIdent is the identifier an assignment target names — the variable
-// itself, or the field of a selector — and nil for anything else, which names
-// no object this rule tracks.
-func assignedIdent(target ast.Expr) *ast.Ident {
+// assignedStream is the stream an assignment target names: a variable on its
+// own, or a field together with the value it was selected from. An expression
+// naming neither — an element of a slice, the field of a literal built on the
+// spot — yields nothing, because an assignment this rule cannot tie to a value
+// is not evidence about one. Recording it under the field alone is what let a
+// single `_ = &(&http.Response{}).Body` speak for every body in sight.
+func assignedStream(info *types.Info, target ast.Expr) (rebinding, bool) {
 	switch node := target.(type) {
 	case *ast.Ident:
-		return node
+		if named := info.Uses[node]; named != nil {
+			return rebinding{object: named}, true
+		}
 	case *ast.SelectorExpr:
-		return node.Sel
+		field, carrier := info.Uses[node.Sel], carrierOf(info, node.X)
+		if field != nil && carrier != nil {
+			return rebinding{carrier: carrier, object: field}, true
+		}
+	}
+	return rebinding{}, false
+}
+
+// carrierOf is the value a field was selected from, when the expression names
+// one. Parentheses and a dereference change nothing about which value is meant
+// — `(*rp).Body` and `rp.Body` are one stream — and a field of a field carries
+// its own name. Everything else names no value this rule can recognise on the
+// reading side either, so it yields nothing rather than a wrong one.
+func carrierOf(info *types.Info, from ast.Expr) types.Object {
+	switch node := from.(type) {
+	case *ast.ParenExpr:
+		return carrierOf(info, node.X)
+	case *ast.StarExpr:
+		return carrierOf(info, node.X)
+	case *ast.Ident:
+		return info.Uses[node]
+	case *ast.SelectorExpr:
+		return info.Uses[node.Sel]
 	}
 	return nil
 }
@@ -156,10 +196,11 @@ func (s scope) in(within funcScope) reading {
 	return reading{scope: s, within: within}
 }
 
-// replaced reports an object some assignment in this function may have replaced,
+// replaced reports a stream some assignment in this function may have replaced,
 // which is the only place a rebinding is evidence about what a read receives.
-func (r reading) replaced(object types.Object) bool {
-	return r.rebound[rebinding{within: r.within, object: object}]
+func (r reading) replaced(stream rebinding) bool {
+	stream.within = r.within
+	return r.rebound[stream]
 }
 
 // checkCall reports a drain whose source is a stream of uncontrolled size.

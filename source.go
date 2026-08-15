@@ -77,7 +77,7 @@ func (r reading) callerStream(info *types.Info, name *ast.Ident) (sourceName, bo
 		return "", false
 	}
 	arrived := info.Uses[name]
-	if !r.params[arrived] || r.replaced(arrived) {
+	if !r.params[arrived] || r.replaced(rebinding{object: arrived}) {
 		return "", false
 	}
 	stream, ok := streamInterface(arrived.Type())
@@ -97,12 +97,13 @@ func (r reading) callerStream(info *types.Info, name *ast.Ident) (sourceName, bo
 //
 // That object is one thing for the whole program, though — every request in
 // every package selects the same Body — so it identifies the KIND of stream
-// rather than the value. A rebinding is evidence about a value, so it is looked up
-// under the function it was written in as well: a cap in one function is not a
-// cap on a body another function received.
+// rather than the value. A rebinding is evidence about a value, so it is looked
+// up under the value the body was selected from and the function the assignment
+// was written in: a cap on one request is not a cap on the next one, and a cap
+// in one function is not a cap on a body another function received.
 func (r reading) networkBody(info *types.Info, selector *ast.SelectorExpr) (sourceName, bool) {
 	field, ok := info.Uses[selector.Sel].(*types.Var)
-	if !ok || r.replaced(field) {
+	if !ok || r.replaced(rebinding{carrier: carrierOf(info, selector.X), object: field}) {
 		return "", false
 	}
 	carrier, ok := httpBodyCarrier(field)

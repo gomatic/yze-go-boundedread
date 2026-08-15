@@ -126,20 +126,59 @@ func TestDerefUnwrapsOnlyAPointer(t *testing.T) {
 	want.Equal(element, deref(element))
 }
 
-// TestAssignedIdentNamesOnlyWhatItCanTrack pins which assignment targets the
-// rule follows: a variable and a selector's field. An index expression names no
-// object whose replacement could be observed, and yields nothing rather than a
-// wrong one.
-func TestAssignedIdentNamesOnlyWhatItCanTrack(t *testing.T) {
+// TestAssignedStreamNamesTheValueNotOnlyTheField pins which assignment targets
+// the rule follows and what it records for each. A variable names itself. A
+// field names the VALUE it was selected from as well, because net/http declares
+// one Body field object for the whole program and the field on its own would
+// speak for every request in sight. A target naming no value — an element of a
+// slice, the field of a message built on the spot, an identifier the checker
+// resolved to nothing — is recorded as nothing rather than as a claim about a
+// stream the assignment never reached.
+func TestAssignedStreamNamesTheValueNotOnlyTheField(t *testing.T) {
 	t.Parallel()
 	want := assert.New(t)
 
-	name := &ast.Ident{Name: "r"}
-	field := &ast.Ident{Name: "Body"}
+	req, body := ast.NewIdent("req"), ast.NewIdent("Body")
+	carrier := types.NewVar(0, nil, "req", types.Typ[types.String])
+	field := types.NewField(0, nil, "Body", types.Typ[types.String], false)
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{req: carrier, body: field}}
 
-	want.Same(name, assignedIdent(name))
-	want.Same(field, assignedIdent(&ast.SelectorExpr{X: name, Sel: field}))
-	want.Nil(assignedIdent(&ast.IndexExpr{X: name}), "an index names no tracked object")
+	named, ok := assignedStream(info, req)
+	want.True(ok)
+	want.Equal(rebinding{object: carrier}, named, "a variable names itself")
+
+	selected, ok := assignedStream(info, &ast.SelectorExpr{X: req, Sel: body})
+	want.True(ok)
+	want.Equal(rebinding{carrier: carrier, object: field}, selected, "a field names the value it came from")
+
+	_, ok = assignedStream(info, &ast.IndexExpr{X: req})
+	want.False(ok, "an index names no stream")
+
+	_, ok = assignedStream(info, &ast.SelectorExpr{X: &ast.CompositeLit{}, Sel: body})
+	want.False(ok, "a field of a value built on the spot names no stream")
+
+	_, ok = assignedStream(info, ast.NewIdent("unresolved"))
+	want.False(ok, "an identifier the checker resolved to nothing names no stream")
+}
+
+// TestDeclaredInIsTheOutermostFunction pins the scope a rebinding is recorded
+// under: the outermost function on the node's stack, so a closure is part of
+// the function that spells it and a cap applied in one governs a read in the
+// other; and the package block for a node written in no function at all.
+func TestDeclaredInIsTheOutermostFunction(t *testing.T) {
+	t.Parallel()
+	want := assert.New(t)
+
+	file := &ast.File{}
+	declared := &ast.FuncDecl{Type: &ast.FuncType{Func: token.Pos(10)}}
+	literal := &ast.FuncLit{Type: &ast.FuncType{Func: token.Pos(20)}}
+
+	want.Equal(funcScope(token.NoPos), declaredIn([]ast.Node{file}),
+		"a node in no function belongs to the package block")
+	want.Equal(funcScope(declared.Pos()), declaredIn([]ast.Node{file, declared, literal}),
+		"a closure belongs to the function that spells it")
+	want.Equal(funcScope(literal.Pos()), declaredIn([]ast.Node{file, literal}),
+		"a literal with no declaration around it is its own scope")
 }
 
 // TestDeclareParamsToleratesASignatureWithoutParameters pins the guard against

@@ -39,6 +39,7 @@
 //     rule that judged the interface alone would report the very fix it asks
 //     for. Judging a local means tracking what was assigned to it, which is
 //     dataflow this analyzer does not do.
+//
 //   - A CONCRETE type is silent — *bytes.Reader, *strings.Reader, an
 //     embed.FS entry, *io.LimitedReader, and *os.File alike. The first four
 //     are bounded by construction; a file the program itself named is the
@@ -46,21 +47,34 @@
 //     operator chose is not a denial of service. The known cost of that line
 //     is a concrete socket — *net.TCPConn and its siblings are unbounded and
 //     go unreported, because a socket is nearly always held as net.Conn.
-//   - A REBOUND source is silent WHERE THE REBINDING GOVERNS IT: if an
-//     assignment in the same function replaces the parameter or the Body field
-//     (`r = io.LimitReader(r, max)`, `req.Body = http.MaxBytesReader(w,
-//     req.Body, max)`), the value that function reads is no longer the one
-//     that arrived, so nothing is claimed about it. The exemption stops at the
-//     function, because that is as far as the evidence reaches: net/http
-//     declares ONE Body field object for the whole program, so a cap applied
-//     in one function shares an object — not a body — with a read in another,
-//     and the cap never ran before that read. Scoped any wider, a single inert
-//     `req.Body = req.Body` anywhere would disable the rule for the package.
-//     The KNOWN COST of that line is the cap applied at the edge: a ServeHTTP
-//     that caps and a helper further down that reads is reported, because
-//     proving the capped request is the one the helper received is
-//     interprocedural dataflow this rule does not do. Bounding at the read, or
-//     passing the bounded body rather than the request, answers it.
+//
+//   - A REBOUND source is silent WHERE THE REBINDING GOVERNS IT: an assignment
+//     that replaces the very value being read, written in the function that
+//     reads it (`r = io.LimitReader(r, max)`, `req.Body = http.MaxBytesReader(w,
+//     req.Body, max)`), means what is read is no longer what arrived, so
+//     nothing is claimed about it. BOTH halves of that are load-bearing, and
+//     each was a hole on its own. net/http declares ONE Body field object for
+//     the whole program, so an exemption keyed on the field speaks for every
+//     request in the package — a single inert `req.Body = req.Body` disables
+//     the rule for all of them. And two handler closures registered beside one
+//     another share an enclosing function, so an exemption keyed on the
+//     function speaks for a request it never saw — `mux.HandleFunc("/small",
+//     func(w, r){ r.Body = cap(r.Body); read(r.Body) })` would silence the
+//     unbounded `/upload` handler registered on the line below it. The
+//     evidence is about a VALUE, and it reaches exactly as far as the value
+//     can be followed without dataflow: the same carrier, in the same function.
+//
+//     The KNOWN COST is a bound applied in one function and the read in
+//     another — a ServeHTTP that caps and a helper that reads, and the
+//     http.MaxBytesReader middleware idiom. Both are reported, because proving
+//     the capped request is the one that reached the reader is interprocedural.
+//     A helper can be handed the bounded body instead of the request; the
+//     middleware form cannot, since http.Handler's signature admits nothing but
+//     the request, and for it the only answer is a bound at the read. That cost
+//     is the price of an exemption no inert line can forge, and the alternative
+//     is worse in kind: an exemption wide enough to cover the middleware is
+//     wide enough to silence every unbounded handler standing next to it.
+//
 //   - TEST files are out of scope: a test reads the fixture it wrote itself.
 //
 // # bufio.Scanner is deliberately absent

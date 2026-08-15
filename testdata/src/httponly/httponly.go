@@ -23,6 +23,13 @@ import (
 // reads is the one that arrived and the finding stands.
 var fetched, _ = io.ReadAll(latest().Body) // want `io.ReadAll drains the http.Response body`
 
+// surrendered takes the address of a Body that belongs to a message built on
+// the spot. It names no value the rule can recognise, so it is not evidence
+// about one and buys the drain above no silence — the package block is one
+// scope shared by every file, and a rebinding recorded there under the field
+// alone would be the package-wide hole again, spelled differently.
+var surrendered = &(&http.Response{}).Body
+
 // latest yields the response the package reads at initialisation.
 func latest() *http.Response { return &http.Response{} }
 
