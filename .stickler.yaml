@@ -6,27 +6,34 @@
 soft-baseline:
   # yze/invariant is a permanent probe (judgment-bound). Re-measured 2026-08-15
   # on this branch with the ${GOBIN} stickler and yze installed 2026-08-10, and
-  # it reports exactly two findings, both of them doc comments that describe the
-  # LANGUAGE rather than a contract of this package that a test could name:
-  #   - unwrapped, source.go:39, "exactly" — "parentheses in every case, and a
-  #     type assertion only when it asserts an INTERFACE". The word is quantifying
-  #     the syntax Go has, not promising a behaviour of this function.
+  # ONE finding is left, adjudicated rather than answered:
   #   - streamInterface, source.go:149, "cannot" — "an interface cannot advertise
-  #     a length". A fact about interfaces, and the premise the whole rule rests
-  #     on; there is nothing here for a test to name.
-  # Rewording prose to dodge the keyword list would be gaming the measurement,
-  # so the count is recorded instead; it falls if either is rewritten.
+  #     a length". That is a fact about interfaces and the premise the whole rule
+  #     rests on, not a behaviour of this function, so there is nothing here for
+  #     a test to name. Rewording prose to dodge the keyword list would be gaming
+  #     the measurement, so the count is recorded instead; it falls if that
+  #     sentence is rewritten.
   #
-  # This replaces a 2026-08-03 adjudication of FOUR sites — Analyzer,
-  # addressed, networkBody, streamInterface — of which three no longer fire
-  # after this package's prose changed, while `unwrapped`, the one that does,
-  # was never named. A ceiling of 4 against an actual 2 is two unspent units of
-  # permission to regress, which is the exact defect this session exists to
-  # remove, so the number comes down with the comment.
+  # unwrapped, source.go:39, "exactly" is absent because it was ANSWERED rather
+  # than justified. An earlier version of this file adjudicated it on the same
+  # "describes the language" ground and quoted the wrong sentence to do it: the
+  # claim word sits in "resp.Body.(*os.File) stops the walk and stays silent",
+  # which is a promise about this function, and httponly.go already exercised
+  # both directions while nothing named the function deciding between them.
+  # TestUnwrappedStopsAtAConcreteAssertion now does, and the finding is gone —
+  # verified by removing that test, which brings the count back to 2.
+  #
+  # A 2026-08-03 adjudication named FOUR sites — Analyzer, addressed,
+  # networkBody, streamInterface. Three stopped firing for two different
+  # reasons, and the difference matters because they have different futures:
+  # Analyzer and networkBody lost their claim words when this package's prose
+  # changed, while addressed still says "never" at scope.go:113 and is silent
+  # only because TestAddressedRecognisesAPointerByTypeNotOperator names it.
+  # Prose drift can recur; an answered probe stays answered while its test does.
   #
   # Deliberately taken with eyes open: another agent is changing yze/invariant
   # itself on this same branch, so its count here may rise when that lands. That
   # is the ratchet working — a rise is meant to fail the build and be answered by
   # a deliberate, reviewable raise, not absorbed in silence by slack left behind
   # for the purpose.
-  yze/invariant: 2
+  yze/invariant: 1
